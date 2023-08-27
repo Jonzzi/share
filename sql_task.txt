@@ -1,0 +1,65 @@
+WITH tmp_1 AS (
+  SELECT 
+    *, 
+    date_part('year', DateKey) AS date_year, 
+    date_part('month', DateKey) AS date_month, 
+    RANK() OVER (
+      ORDER BY 
+        DATE_TRUNC('month', DateKey)
+    ) AS month_rank, 
+    RANK() OVER (
+      ORDER BY 
+        PartnerKey, 
+        ProductKey
+    ) AS tmp_rank, 
+    SUM(SalesAmountFull) OVER ppd AS parther_sum_amt, 
+    SUM(SalesQuantityFull) OVER ppd AS parther_sum_qt 
+  FROM 
+    FactSales WINDOW ppd AS (
+      PARTITION BY PartnerKey, 
+      ProductKey, 
+      DATE_TRUNC('month', DateKey)
+    ) 
+  ORDER BY 
+    DateKey
+), 
+tmp_2 AS (
+  SELECT 
+    tmp_1.date_year, 
+    tmp_1.date_month, 
+    tmp_1.PartnerKey, 
+    tmp_1.ProductKey, 
+    tmp_1.month_rank, 
+    tmp_1.tmp_rank, 
+    MAX(tmp_1.parther_sum_amt) as month_sum_amt, 
+    MAX(tmp_1.parther_sum_qt) as month_sum_qt 
+  FROM 
+    tmp_1 
+  GROUP BY 
+    (
+      PartnerKey, ProductKey, tmp_1.month_rank, 
+      tmp_1.date_year, tmp_1.date_month, 
+      tmp_rank
+    ) 
+  ORDER BY 
+    month_rank
+) 
+SELECT 
+  date_year, 
+  date_month, 
+  PartnerKey, 
+  ProductKey, 
+  month_sum_amt,
+  month_sum_qt,
+  SUM(month_sum_amt) OVER roll_sum_wnd AS roll_sum_amt, 
+  SUM(month_sum_qt) OVER roll_sum_wnd AS roll_sum_qt 
+FROM 
+  tmp_2 WINDOW roll_sum_wnd AS (
+    PARTITION BY tmp_2.tmp_rank 
+    ORDER BY 
+      tmp_2.month_rank ROWS BETWEEN 11 PRECEDING 
+      AND 0 FOLLOWING
+  ) 
+ORDER BY 
+  tmp_2.date_year, 
+  tmp_2.date_month;
